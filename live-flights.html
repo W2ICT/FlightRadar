@@ -428,29 +428,8 @@ async function fetchWithTimeout(url, ms = 12000) {
 }
 
 // ═══════════════════════════════════════════
-// OPENSKY PARSER  (metres → feet, m/s → kts/fpm)
+// PARSERS
 // ═══════════════════════════════════════════
-function parseOpenSky(data) {
-  return (data.states || [])
-    .filter(s => s[5] != null && s[6] != null)
-    .map(s => ({
-      hex:       s[0],
-      callsign:  (s[1]||'').trim(),
-      flight:    (s[1]||'').trim(),
-      lat:       s[6], lon: s[5],
-      alt_baro:  s[8] ? 'ground' : (s[7] != null ? Math.round(s[7]*3.28084) : null),
-      on_ground: s[8],
-      gs:        s[9]  != null ? Math.round(s[9]*1.94384)  : null,
-      track:     s[10],
-      baro_rate: s[11] != null ? Math.round(s[11]*196.85) : null,
-      squawk:    s[14], r:null, t:null
-    }));
-}
-
-// ═══════════════════════════════════════════
-// API SOURCES  — direct, then via proxy
-// ═══════════════════════════════════════════
-// normalize adsb.lol/adsb.fi/airplanes.live field differences
 function normalizeAc(a) {
   a.track    = a.track    ?? a.calc_track ?? 0;
   a.callsign = (a.callsign || a.flight || '').trim();
@@ -460,91 +439,129 @@ function normalizeAc(a) {
   return a;
 }
 const AC = d => (d.ac||[]).filter(a=>a.lat!=null&&a.lon!=null).map(normalizeAc);
+
+function parseOpenSky(data) {
+  return (data.states||[]).filter(s=>s[5]!=null&&s[6]!=null).map(s=>normalizeAc({
+    hex: s[0], callsign:(s[1]||'').trim(), flight:(s[1]||'').trim(),
+    lat:s[6], lon:s[5],
+    alt_baro: s[8] ? 'ground' : (s[7]!=null ? Math.round(s[7]*3.28084) : null),
+    on_ground:s[8],
+    gs:    s[9] !=null ? Math.round(s[9]*1.94384)  : null,
+    track: s[10],
+    baro_rate: s[11]!=null ? Math.round(s[11]*196.85) : null,
+    squawk:s[14], r:null, t:null
+  }));
+}
+
+// ═══════════════════════════════════════════
+// SOURCE DEFINITIONS
+// ═══════════════════════════════════════════
 const PX = 'https://corsproxy.io/?';
 const OS_URL = 'https://opensky-network.org/api/states/all?lamin=5&lomin=97&lamax=21&lomax=106';
 
-const APIS = [
-  // ── adsb.lol ✅ confirmed working, CORS OK ──
-  { name:'adsb.lol',        url:'https://api.adsb.lol/v2/lat/13/lon/101/dist/500', parse: AC },
-  // ── airplanes.live ──
-  { name:'airplanes.live',  url:'https://api.airplanes.live/v2/point/13/101/500',  parse: AC },
-  // ── OpenSky ──
-  { name:'OpenSky',         url: OS_URL,  parse: parseOpenSky, timeout: 20000 },
-  // ── proxy fallbacks ──
-  { name:'adsb.lol (proxy)',        url: PX+'https://api.adsb.lol/v2/lat/13/lon/101/dist/500', parse: AC },
-  { name:'airplanes.live (proxy)',  url: PX+'https://api.airplanes.live/v2/point/13/101/500',  parse: AC },
-  { name:'OpenSky (proxy)', url: PX + OS_URL, parse: parseOpenSky, timeout: 25000 },
+// Direct sources — fetched in PARALLEL (round 1)
+const DIRECT = [
+  { name:'adsb.lol',       url:'https://api.adsb.lol/v2/lat/13/lon/101/dist/600',  parse:AC },
+  { name:'airplanes.live', url:'https://api.airplanes.live/v2/point/13/101/600',   parse:AC },
+  { name:'OpenSky',        url: OS_URL, parse:parseOpenSky, timeout:20000 },
 ];
+
+// Proxy fallbacks — fetched in PARALLEL (round 2, only if round 1 gets nothing)
+const PROXIED = [
+  { name:'adsb.lol★',  url:PX+'https://api.adsb.lol/v2/lat/13/lon/101/dist/600',  parse:AC },
+  { name:'OpenSky★',   url:PX+OS_URL, parse:parseOpenSky, timeout:25000 },
+];
+
+// ═══════════════════════════════════════════
+// MERGE — combine multiple sources, dedupe by hex
+// prefer source with more fields (reg/type) for same aircraft
+// ═══════════════════════════════════════════
+function mergeSources(sources) {
+  const map = new Map();
+  sources.forEach(({ ac }) => {
+    ac.forEach(f => {
+      const existing = map.get(f.hex);
+      // Keep entry with more info (has reg 'r' or type 't')
+      if (!existing || (!existing.r && f.r) || (!existing.t && f.t)) {
+        map.set(f.hex, f);
+      }
+    });
+  });
+  return [...map.values()];
+}
 
 // ═══════════════════════════════════════════
 // SOURCE BADGE
 // ═══════════════════════════════════════════
-function setSrcBadge(name, state) {
-  const s = {
-    ok:      'background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);',
-    warn:    'background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3);',
-    offline: 'background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);',
+function setSrcBadge(label, state) {
+  const styles = {
+    ok:     'background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);',
+    warn:   'background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3);',
+    offline:'background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);',
   };
   const badge = document.getElementById('srcBadge');
-  badge.textContent  = `● ${name}`;
-  badge.style.cssText = `padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;${s[state]||s.ok}`;
+  badge.textContent  = `● ${label}`;
+  badge.style.cssText = `padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;${styles[state]||styles.ok}`;
 }
 
 // ═══════════════════════════════════════════
-// FETCH FLIGHTS
+// FETCH ONE SOURCE
+// ═══════════════════════════════════════════
+async function fetchSource(api) {
+  const res = await fetchWithTimeout(api.url, api.timeout || 12000);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return { name: api.name, ac: api.parse(data) };
+}
+
+// ═══════════════════════════════════════════
+// FETCH FLIGHTS — parallel multi-source merge
 // ═══════════════════════════════════════════
 async function fetchFlights() {
   const btn = document.getElementById('refreshBtn');
   btn.classList.add('loading');
   document.getElementById('loadingOverlay').classList.remove('hidden');
+  document.getElementById('loadingText').textContent = 'Fetching from multiple sources…';
 
-  const errors = [];
+  // ── Round 1: all direct sources in PARALLEL ──
+  const r1 = await Promise.allSettled(DIRECT.map(fetchSource));
+  let hits = r1.filter(r=>r.status==='fulfilled' && r.value.ac.length>0)
+               .map(r=>r.value);
+  let isProxy = false;
 
-  for (let i = 0; i < APIS.length; i++) {
-    const api = APIS[i];
-    try {
-      document.getElementById('loadingText').textContent = `Trying ${api.name}…`;
-
-      const res  = await fetchWithTimeout(api.url, api.timeout || 12000);
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      const data = await res.json();
-      const ac   = api.parse(data);
-
-      if (!ac.length) {
-        errors.push(`${api.name}: 0 aircraft returned`);
-        continue;
-      }
-
-      allFlights = ac;
-      setSrcBadge(api.name, i < 3 ? 'ok' : 'warn');
-      document.getElementById('stSrc').textContent = api.name;
-      applyFilter();
-      updateStats();
-      renderMarkers();
-      document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
-      btn.classList.remove('loading');
-      document.getElementById('loadingOverlay').classList.add('hidden');
-      return; // ✅
-
-    } catch (err) {
-      errors.push(`${api.name}: ${err.message}`);
-      console.warn(`[${api.name}]`, err.message);
-    }
+  // ── Round 2: proxy sources in PARALLEL (only if round 1 got nothing) ──
+  if (!hits.length) {
+    document.getElementById('loadingText').textContent = 'Trying proxy sources…';
+    const r2 = await Promise.allSettled(PROXIED.map(fetchSource));
+    hits = r2.filter(r=>r.status==='fulfilled' && r.value.ac.length>0)
+             .map(r=>r.value);
+    isProxy = true;
   }
 
-  // ❌ All failed
+  if (hits.length) {
+    allFlights = mergeSources(hits);
+
+    // Count per source for badge
+    const parts = hits.map(h => `${h.name.replace('★','')} (${h.ac.length})`);
+    setSrcBadge(parts.join(' + '), isProxy ? 'warn' : 'ok');
+    document.getElementById('stSrc').textContent = hits.map(h=>h.name.replace('★','')).join('+');
+
+    applyFilter();
+    updateStats();
+    renderMarkers();
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
+    btn.classList.remove('loading');
+    document.getElementById('loadingOverlay').classList.add('hidden');
+    return;
+  }
+
+  // ── All failed ──
+  const errs = [...r1,...(isProxy?[]:[])].filter(r=>r.status==='rejected')
+                .map(r=>r.reason?.message||'failed');
   setSrcBadge('Offline', 'offline');
   document.getElementById('flightList').innerHTML =
-    `<div class="no-flights">
-       <div class="big">⚠</div>
-       ทุก API ล้มเหลว<br><br>
-       <div style="text-align:left;font-size:9px;color:var(--muted);line-height:1.8;">
-         ${errors.map(e=>`• ${e}`).join('<br>')}
-       </div><br>
-       <div style="font-size:9px;color:var(--muted);">
-         ตรวจสอบอินเทอร์เน็ต แล้ว Refresh อีกครั้ง
-       </div>
-     </div>`;
+    `<div class="no-flights"><div class="big">⚠</div>ทุก API ล้มเหลว<br><br>
+     <div style="font-size:9px;color:var(--muted);">ตรวจสอบอินเทอร์เน็ต แล้ว Refresh อีกครั้ง</div></div>`;
   btn.classList.remove('loading');
   document.getElementById('loadingOverlay').classList.add('hidden');
 }
