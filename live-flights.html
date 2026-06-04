@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Thailand Live Flights</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    :root {
+      --bg:      #1a1a2e;
+      --surface: #16213e;
+      --surface2:#0f3460;
+      --border:  #1e3a5f;
+      --text:    #e0e0e0;
+      --text2:   #a0aec0;
+      --muted:   #6b7280;
+      --accent:  #e8b94f;
+      --accent2: #f6d365;
+      --red:     #e74c3c;
+      --green:   #2ecc71;
+      --blue:    #3498db;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+    /* ── TOPBAR ── */
+    .topbar{background:#0d1117;border-bottom:1px solid var(--border);padding:0 14px;height:46px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:1200;box-shadow:0 2px 10px rgba(0,0,0,.5);}
+    .tb-logo{display:flex;align-items:center;gap:8px;}
+    .tb-logo-icon{width:32px;height:32px;background:linear-gradient(135deg,#e8b94f,#f97316);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:17px;}
+    .tb-logo-text{font-size:14px;font-weight:800;color:#fff;}
+    .tb-logo-sub{font-size:9px;color:var(--muted);}
+    .tb-sep{width:1px;height:24px;background:var(--border);margin:0 2px;}
+    .tb-search{display:flex;align-items:center;gap:6px;background:#1c2433;border:1px solid var(--border);border-radius:20px;padding:5px 12px;flex:1;max-width:260px;}
+    .tb-search input{background:none;border:none;outline:none;color:var(--text);font-size:11px;width:100%;}
+    .tb-search input::placeholder{color:var(--muted);}
+    .tb-right{margin-left:auto;display:flex;align-items:center;gap:7px;}
+    .tb-stat{display:flex;align-items:center;gap:5px;background:#1c2433;border:1px solid var(--border);border-radius:16px;padding:4px 10px;font-size:10px;}
+    .tb-stat .dot{width:7px;height:7px;border-radius:50%;}
+    .tb-stat .val{font-weight:700;color:var(--accent2);}
+    .tb-btn{width:30px;height:30px;background:#1c2433;border:1px solid var(--border);border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--text);transition:background .15s;text-decoration:none;}
+    .tb-btn:hover{background:var(--surface2);}
+    .tb-btn.active{background:rgba(232,185,79,.2);border-color:var(--accent);}
+    .refresh-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;background:#1c2433;border:1px solid var(--border);border-radius:16px;cursor:pointer;font-size:10px;font-weight:600;color:var(--text2);transition:background .15s;}
+    .refresh-btn:hover{background:var(--surface2);color:var(--text);}
+    .refresh-btn .spin{display:inline-block;}
+    .refresh-btn.loading .spin{animation:spin 1s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg);}}
+
+    /* source badge */
+    #srcBadge{padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);}
+    #srcBadge.warn{background:rgba(245,158,11,.15);color:#f59e0b;border-color:rgba(245,158,11,.3);}
+    #srcBadge.err{background:rgba(239,68,68,.15);color:#ef4444;border-color:rgba(239,68,68,.3);}
+
+    /* ── LAYOUT ── */
+    .main{display:flex;flex:1;overflow:hidden;position:relative;}
+
+    /* ── SIDEBAR ── */
+    .sidebar{width:300px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:width .25s;}
+    .sidebar.collapsed{width:0;}
+    .sb-toggle{position:absolute;left:300px;top:50%;transform:translateY(-50%);z-index:900;width:16px;height:44px;background:var(--surface);border:1px solid var(--border);border-left:none;border-radius:0 6px 6px 0;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted);transition:left .25s;}
+    .sidebar.collapsed~.sb-toggle{left:0;border-left:1px solid var(--border);border-radius:6px;}
+    .sb-toggle:hover{background:var(--surface2);color:var(--text);}
+    .sb-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;}
+    .sb-tab{flex:1;padding:9px 4px;text-align:center;font-size:10px;font-weight:600;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:color .15s,border-color .15s;}
+    .sb-tab.active{color:var(--accent2);border-bottom-color:var(--accent);}
+    .sb-filters{padding:7px 8px;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px;flex-shrink:0;}
+    .f-pill{padding:3px 9px;border-radius:12px;font-size:9px;font-weight:700;cursor:pointer;border:1px solid transparent;opacity:.45;transition:opacity .15s;}
+    .f-pill.active{opacity:1;border-color:currentColor;}
+    .sb-header{padding:6px 10px 3px;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.9px;font-weight:700;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;}
+    .sb-count{background:rgba(232,185,79,.15);color:var(--accent2);border-radius:10px;padding:1px 7px;font-size:9px;}
+    .flight-list{flex:1;overflow-y:auto;}
+    .flight-list::-webkit-scrollbar{width:3px;}
+    .flight-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+    .fl-item{display:flex;align-items:center;gap:7px;padding:6px 10px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.04);transition:background .12s;}
+    .fl-item:hover{background:rgba(255,255,255,.05);}
+    .fl-item.active{background:rgba(232,185,79,.08);}
+    .fl-icon{width:26px;height:26px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .fl-info{flex:1;min-width:0;}
+    .fl-cs{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--accent2);}
+    .fl-route{font-size:9px;color:var(--text2);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .fl-meta{font-size:9px;color:var(--muted);margin-top:1px;}
+    .fl-right{text-align:right;flex-shrink:0;}
+    .fl-alt{font-size:10px;font-weight:600;color:var(--text);}
+    .fl-spd{font-size:9px;color:var(--muted);}
+    .no-flights{text-align:center;padding:30px 16px;color:var(--muted);font-size:11px;}
+    .no-flights .big{font-size:28px;margin-bottom:8px;}
+
+    /* ── MAP ── */
+    #map{flex:1;}
+
+    /* ── DETAIL PANEL ── */
+    #detailPanel{position:absolute;bottom:0;left:300px;right:0;background:rgba(13,17,23,.96);border-top:1px solid var(--border);padding:10px 38px 10px 16px;display:none;z-index:700;backdrop-filter:blur(6px);transition:left .25s;}
+    #detailPanel.show{display:flex;gap:14px;align-items:center;flex-wrap:wrap;}
+    .dp-close{position:absolute;top:10px;right:12px;cursor:pointer;color:var(--muted);font-size:15px;line-height:1;}
+    .dp-close:hover{color:var(--text);}
+    .dp-cs{font-size:20px;font-weight:800;color:var(--accent2);}
+    .dp-reg{font-size:10px;color:var(--muted);}
+    .dp-sep{width:1px;height:36px;background:var(--border);flex-shrink:0;}
+    .dp-field{text-align:center;}
+    .dp-lbl{font-size:8px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);}
+    .dp-val{font-size:13px;font-weight:700;color:var(--text);margin-top:2px;}
+    .dp-unit{font-size:8px;color:var(--muted);}
+    .dp-vrate.climb{color:var(--green);}
+    .dp-vrate.desc{color:var(--red);}
+    .dp-vrate.level{color:var(--text2);}
+
+    /* ── STATUS BAR ── */
+    .statusbar{background:#0d1117;border-top:1px solid var(--border);padding:3px 14px;display:flex;gap:16px;font-size:9px;color:var(--muted);flex-shrink:0;align-items:center;flex-wrap:wrap;}
+    .statusbar span{color:var(--accent2);font-weight:600;}
+    #coordDisp{margin-left:auto;font-family:monospace;font-size:9px;}
+
+    /* ── LEAFLET POPUPS ── */
+    .leaflet-popup-content-wrapper{background:#0d1117;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.7);padding:0;}
+    .leaflet-popup-content{margin:0!important;width:250px!important;}
+    .leaflet-popup-tip{background:#0d1117;}
+    .leaflet-popup-close-button{color:var(--muted)!important;top:6px!important;right:8px!important;}
+    .pu-body{padding:9px 12px;}
+    .pu-row{display:flex;justify-content:space-between;margin-bottom:4px;font-size:10px;}
+    .pu-lbl{color:var(--muted);}
+    .pu-val{color:var(--text);font-weight:600;font-family:monospace;font-size:10px;}
+
+    /* ── MAP CONTROLS ── */
+    .map-ctrl{position:absolute;top:12px;right:12px;z-index:800;display:flex;flex-direction:column;gap:5px;}
+    .mc-btn{width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--text);transition:background .15s;box-shadow:0 2px 8px rgba(0,0,0,.4);}
+    .mc-btn:hover{background:var(--surface2);}
+    .mc-btn.on{background:rgba(232,185,79,.2);border-color:var(--accent);}
+
+    /* ── LOADING OVERLAY ── */
+    #loadingOverlay{position:absolute;inset:0;background:rgba(13,17,23,.75);display:flex;align-items:center;justify-content:center;z-index:1100;flex-direction:column;gap:10px;backdrop-filter:blur(2px);}
+    #loadingOverlay.hidden{display:none;}
+    .ld-spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;}
+    .ld-text{font-size:12px;color:var(--text2);}
+
+    /* Responsive */
+    @media(max-width:640px){
+      .sidebar{width:0;}
+      #detailPanel{left:0!important;}
+      .tb-stat{display:none;}
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="tb-logo">
+    <div class="tb-logo-icon">✈</div>
+    <div>
+      <div class="tb-logo-text">Thailand Live Flights</div>
+      <div class="tb-logo-sub">Real-time ADS-B · adsb.fi</div>
+    </div>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-search">
+    <span style="color:var(--muted);font-size:11px;">🔍</span>
+    <input type="text" id="searchInput" placeholder="Callsign, reg, type, country…" oninput="filterFlights()"/>
+  </div>
+  <div class="tb-right">
+    <div class="tb-stat">
+      <div class="dot" style="background:#2ecc71;"></div>
+      <span>Airborne</span>
+      <span class="val" id="statAir">—</span>
+    </div>
+    <div class="tb-stat">
+      <div class="dot" style="background:#e74c3c;"></div>
+      <span>Ground</span>
+      <span class="val" id="statGnd">—</span>
+    </div>
+    <span id="srcBadge">● adsb.fi</span>
+    <button class="refresh-btn" id="refreshBtn" onclick="fetchFlights(true)">
+      <span class="spin">↻</span> Refresh
+    </button>
+    <button class="tb-btn" id="autoBtn" onclick="toggleAuto()" title="Auto-refresh 15s">⏱</button>
+    <a href="index.html" class="tb-btn" title="AIP GIS Map">🗺</a>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <div class="sb-tabs">
+      <div class="sb-tab active" id="tab-flights" onclick="switchTab('flights')">✈ Flights</div>
+      <div class="sb-tab" id="tab-info" onclick="switchTab('info')">ℹ Info</div>
+    </div>
+    <div class="sb-filters">
+      <div class="f-pill active" id="fp-all"   style="color:#e0e0e0;background:rgba(255,255,255,.08);"  onclick="setFilter('all')">All</div>
+      <div class="f-pill active" id="fp-air"   style="color:#2ecc71;background:rgba(46,204,113,.1);"   onclick="setFilter('air')">✈ Airborne</div>
+      <div class="f-pill"        id="fp-gnd"   style="color:#e74c3c;background:rgba(231,76,60,.1);"    onclick="setFilter('gnd')">🔴 Ground</div>
+      <div class="f-pill"        id="fp-climb" style="color:#3498db;background:rgba(52,152,219,.1);"   onclick="setFilter('climb')">↑ Climb</div>
+      <div class="f-pill"        id="fp-desc"  style="color:#e67e22;background:rgba(230,126,34,.1);"   onclick="setFilter('desc')">↓ Descend</div>
+    </div>
+
+    <!-- Flights pane -->
+    <div id="pane-flights" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="sb-header">
+        Flights over Thailand
+        <span class="sb-count" id="flightCount">—</span>
+      </div>
+      <div class="flight-list" id="flightList">
+        <div class="no-flights"><div class="big">✈</div>Loading…</div>
+      </div>
+    </div>
+
+    <!-- Info pane -->
+    <div id="pane-info" style="display:none;flex:1;overflow-y:auto;padding:12px;flex-direction:column;">
+      <div style="font-size:11px;font-weight:700;color:var(--accent2);margin-bottom:8px;">Data Sources</div>
+      <div style="font-size:10px;color:var(--text2);line-height:1.7;margin-bottom:10px;">
+        <p>Primary: <strong style="color:#34d399;">adsb.fi</strong> — global ADS-B network, free, no key required.</p>
+        <p style="margin-top:6px;">Fallback: <strong style="color:#f59e0b;">airplanes.live</strong> — backup feed.</p>
+        <p style="margin-top:6px;">Coverage: Bangkok FIR region 500 NM radius.</p>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--accent2);margin-bottom:8px;">Altitude Colors</div>
+      <div style="font-size:10px;line-height:2.2;">
+        <div style="display:flex;align-items:center;gap:7px;"><div style="width:10px;height:10px;border-radius:50%;background:#e74c3c;flex-shrink:0;"></div>Ground / &lt; 1,000 ft</div>
+        <div style="display:flex;align-items:center;gap:7px;"><div style="width:10px;height:10px;border-radius:50%;background:#e67e22;flex-shrink:0;"></div>1,000 – 10,000 ft</div>
+        <div style="display:flex;align-items:center;gap:7px;"><div style="width:10px;height:10px;border-radius:50%;background:#f1c40f;flex-shrink:0;"></div>10,000 – 20,000 ft</div>
+        <div style="display:flex;align-items:center;gap:7px;"><div style="width:10px;height:10px;border-radius:50%;background:#2ecc71;flex-shrink:0;"></div>20,000 – 30,000 ft</div>
+        <div style="display:flex;align-items:center;gap:7px;"><div style="width:10px;height:10px;border-radius:50%;background:#3498db;flex-shrink:0;"></div>30,000 – 40,000 ft</div>
+        <div style="display:flex;align-items:center;gap:7px;"><div style="width:10px;height:10px;border-radius:50%;background:#9b59b6;flex-shrink:0;"></div>&gt; 40,000 ft</div>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--accent2);margin:12px 0 8px;">Keyboard Shortcuts</div>
+      <div style="font-size:10px;color:var(--text2);line-height:2.2;">
+        <div><kbd style="background:var(--surface2);border:1px solid var(--border);padding:1px 6px;border-radius:3px;">R</kbd>  Refresh now</div>
+        <div><kbd style="background:var(--surface2);border:1px solid var(--border);padding:1px 6px;border-radius:3px;">A</kbd>  Toggle auto-refresh</div>
+        <div><kbd style="background:var(--surface2);border:1px solid var(--border);padding:1px 6px;border-radius:3px;">L</kbd>  Toggle callsign labels</div>
+        <div><kbd style="background:var(--surface2);border:1px solid var(--border);padding:1px 6px;border-radius:3px;">[</kbd>  Toggle sidebar</div>
+        <div><kbd style="background:var(--surface2);border:1px solid var(--border);padding:1px 6px;border-radius:3px;">Esc</kbd>  Deselect</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sb-toggle" id="sbToggle" onclick="toggleSidebar()">◀</div>
+
+  <!-- MAP -->
+  <div id="map"></div>
+
+  <!-- MAP CONTROLS -->
+  <div class="map-ctrl">
+    <div class="mc-btn" onclick="map.setView([13,101],6)" title="Reset view">🏠</div>
+    <div class="mc-btn" id="labelBtn" onclick="toggleLabels()" title="Callsign labels">🏷</div>
+  </div>
+
+  <!-- DETAIL PANEL -->
+  <div id="detailPanel">
+    <span class="dp-close" onclick="closeDetail()">✕</span>
+    <div>
+      <div class="dp-cs" id="dp-cs">—</div>
+      <div class="dp-reg" id="dp-reg">—</div>
+    </div>
+    <div class="dp-sep"></div>
+    <div class="dp-field"><div class="dp-lbl">Altitude</div><div class="dp-val" id="dp-alt">—</div><div class="dp-unit">ft</div></div>
+    <div class="dp-field"><div class="dp-lbl">Speed</div><div class="dp-val" id="dp-spd">—</div><div class="dp-unit">kts</div></div>
+    <div class="dp-field"><div class="dp-lbl">Heading</div><div class="dp-val" id="dp-hdg">—</div><div class="dp-unit">°</div></div>
+    <div class="dp-field"><div class="dp-lbl">V/Speed</div><div class="dp-val dp-vrate level" id="dp-vr">—</div><div class="dp-unit">fpm</div></div>
+    <div class="dp-sep"></div>
+    <div class="dp-field"><div class="dp-lbl">Type</div><div class="dp-val" id="dp-type" style="font-size:11px;">—</div></div>
+    <div class="dp-field"><div class="dp-lbl">Reg</div><div class="dp-val" id="dp-regnr" style="font-size:11px;font-family:monospace;">—</div></div>
+    <div class="dp-field"><div class="dp-lbl">Squawk</div><div class="dp-val" id="dp-sqk" style="font-size:11px;font-family:monospace;">—</div></div>
+    <div class="dp-field"><div class="dp-lbl">ICAO24</div><div class="dp-val" id="dp-hex" style="font-size:10px;font-family:monospace;">—</div></div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loadingOverlay">
+    <div class="ld-spinner"></div>
+    <div class="ld-text" id="loadingText">Fetching live traffic…</div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <div>Flights: <span id="stTotal">—</span></div>
+  <div>Airborne: <span id="stAir">—</span></div>
+  <div>Ground: <span id="stGnd">—</span></div>
+  <div>Source: <span id="stSrc">—</span></div>
+  <div>Updated: <span id="lastUpdate">—</span></div>
+  <div id="coordDisp">Lat: — Lon: —</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════════════════════════════════════
+// MAP
+// ═══════════════════════════════════════════
+const map = L.map('map', { center:[13,101], zoom:6, zoomControl:false });
+L.control.zoom({ position:'bottomright' }).addTo(map);
+
+const darkTile  = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',  { attribution:'&copy; OSM &copy; CARTO', subdomains:'abcd', maxZoom:19 });
+const lightTile = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution:'&copy; OSM &copy; CARTO', subdomains:'abcd', maxZoom:19 });
+const satTile   = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution:'Esri', maxZoom:19 });
+darkTile.addTo(map);
+L.control.layers({ '🌑 Dark':darkTile, '☀️ Light':lightTile, '🛰 Satellite':satTile }, {}, { position:'topright' }).addTo(map);
+
+map.on('mousemove', e => {
+  document.getElementById('coordDisp').textContent = `Lat: ${e.latlng.lat.toFixed(4)}  Lon: ${e.latlng.lng.toFixed(4)}`;
+});
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let allFlights    = [];
+let filtFlights   = [];
+let flightMarkers = {};      // hex → L.marker
+let selectedHex   = null;
+let autoRefresh   = false;
+let autoTimer     = null;
+let showLabels    = false;
+let activeFilter  = 'all';
+let currentQuery  = '';
+const flightLayer = L.layerGroup().addTo(map);
+
+// ═══════════════════════════════════════════
+// ALTITUDE HELPERS  (adsb.fi gives feet)
+// ═══════════════════════════════════════════
+function isGround(f) {
+  return f.on_ground || f.alt_baro === 'ground' || (typeof f.alt_baro === 'number' && f.alt_baro < 50);
+}
+
+function altFt(f) {
+  if (isGround(f)) return 0;
+  return typeof f.alt_baro === 'number' ? f.alt_baro : 0;
+}
+
+function altColor(f) {
+  if (isGround(f)) return '#e74c3c';
+  const ft = altFt(f);
+  if (ft < 1000)  return '#e74c3c';
+  if (ft < 10000) return '#e67e22';
+  if (ft < 20000) return '#f1c40f';
+  if (ft < 30000) return '#2ecc71';
+  if (ft < 40000) return '#3498db';
+  return '#9b59b6';
+}
+
+// ═══════════════════════════════════════════
+// AIRCRAFT ICON  (SVG, rotated by heading)
+// ═══════════════════════════════════════════
+function planeIcon(f, selected) {
+  const color = altColor(f);
+  const hdg   = f.track ?? 0;
+  const cs    = (f.callsign || f.flight || '').trim();
+  const sz    = 22;
+
+  const label = showLabels && cs
+    ? `<div style="position:absolute;top:${sz+2}px;left:50%;transform:translateX(-50%);
+         background:rgba(13,17,23,.88);color:${color};font-size:8px;font-weight:700;
+         padding:1px 4px;border-radius:3px;white-space:nowrap;border:1px solid ${color}50;
+         pointer-events:none;">${cs}</div>`
+    : '';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${sz}" height="${sz}" viewBox="0 0 24 24"
+    style="transform:rotate(${hdg}deg);filter:drop-shadow(0 1px 4px rgba(0,0,0,.7));">
+    <path d="M12 2L8 10H4l2 2-2 4h4l4 6 4-6h4l-2-4 2-2h-4z"
+      fill="${color}"
+      stroke="${selected ? '#fff' : 'rgba(0,0,0,.5)'}"
+      stroke-width="${selected ? 1.5 : 0.5}"/>
+  </svg>`;
+
+  return L.divIcon({
+    html: `<div style="position:relative;width:${sz}px;">${svg}${label}</div>`,
+    iconSize:   [sz, showLabels ? sz + 16 : sz],
+    iconAnchor: [sz/2, sz/2],
+    popupAnchor:[0, -sz/2],
+    className:  ''
+  });
+}
+
+// ═══════════════════════════════════════════
+// POPUP HTML
+// ═══════════════════════════════════════════
+function popupHtml(f) {
+  const cs    = (f.callsign || f.flight || '').trim() || f.hex;
+  const color = altColor(f);
+  const alt   = isGround(f) ? 'On Ground' : altFt(f).toLocaleString() + ' ft';
+  const spd   = f.gs   != null ? Math.round(f.gs)  + ' kts' : '—';
+  const hdg   = f.track!= null ? Math.round(f.track) + '°'  : '—';
+  const vr    = f.baro_rate != null
+    ? (f.baro_rate >= 0 ? '+' : '') + Math.round(f.baro_rate) + ' fpm'
+    : '—';
+  const vrStyle = f.baro_rate == null ? '' : f.baro_rate > 100 ? 'color:#2ecc71' : f.baro_rate < -100 ? 'color:#e74c3c' : 'color:#a0aec0';
+
+  return `
+    <div style="background:linear-gradient(135deg,#0d1117,#1a1a2e);border-radius:9px 9px 0 0;
+         padding:10px 12px 8px;border-bottom:1px solid ${color}40;">
+      <div style="font-size:18px;font-weight:800;color:${color};">${cs}</div>
+      <div style="font-size:9px;color:#6b7280;margin-top:2px;">
+        ${f.r ? f.r + ' · ' : ''}${f.t || ''}${f.t ? ' · ' : ''}${f.hex}
+      </div>
+    </div>
+    <div class="pu-body">
+      <div class="pu-row"><span class="pu-lbl">Status</span>
+        <span class="pu-val" style="color:${isGround(f)?'#e74c3c':'#2ecc71'}">${isGround(f)?'🔴 On Ground':'✈ Airborne'}</span></div>
+      <div class="pu-row"><span class="pu-lbl">Altitude</span><span class="pu-val">${alt}</span></div>
+      <div class="pu-row"><span class="pu-lbl">Speed</span><span class="pu-val">${spd}</span></div>
+      <div class="pu-row"><span class="pu-lbl">Heading</span><span class="pu-val">${hdg}</span></div>
+      <div class="pu-row"><span class="pu-lbl">V/Rate</span><span class="pu-val" style="${vrStyle}">${vr}</span></div>
+      <div class="pu-row"><span class="pu-lbl">Squawk</span><span class="pu-val">${f.squawk||'—'}</span></div>
+      ${f.emergency && f.emergency !== 'none' ? `<div class="pu-row"><span class="pu-lbl">Emergency</span><span class="pu-val" style="color:#e74c3c;">⚠ ${f.emergency}</span></div>` : ''}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════
+// FETCH HELPER
+// ═══════════════════════════════════════════
+async function fetchWithTimeout(url, ms = 12000) {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    return res;
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
+// ═══════════════════════════════════════════
+// OPENSKY PARSER  (metres → feet, m/s → kts/fpm)
+// ═══════════════════════════════════════════
+function parseOpenSky(data) {
+  return (data.states || [])
+    .filter(s => s[5] != null && s[6] != null)
+    .map(s => ({
+      hex:       s[0],
+      callsign:  (s[1]||'').trim(),
+      flight:    (s[1]||'').trim(),
+      lat:       s[6], lon: s[5],
+      alt_baro:  s[8] ? 'ground' : (s[7] != null ? Math.round(s[7]*3.28084) : null),
+      on_ground: s[8],
+      gs:        s[9]  != null ? Math.round(s[9]*1.94384)  : null,
+      track:     s[10],
+      baro_rate: s[11] != null ? Math.round(s[11]*196.85) : null,
+      squawk:    s[14], r:null, t:null
+    }));
+}
+
+// ═══════════════════════════════════════════
+// API SOURCES  — direct, then via proxy
+// ═══════════════════════════════════════════
+// normalize adsb.lol/adsb.fi/airplanes.live field differences
+function normalizeAc(a) {
+  a.track    = a.track    ?? a.calc_track ?? 0;
+  a.callsign = (a.callsign || a.flight || '').trim();
+  a.flight   = a.callsign;
+  a.gs       = a.gs       ?? a.gnd_spd   ?? null;
+  a.baro_rate= a.baro_rate?? a.vert_rate ?? null;
+  return a;
+}
+const AC = d => (d.ac||[]).filter(a=>a.lat!=null&&a.lon!=null).map(normalizeAc);
+const PX = 'https://corsproxy.io/?';
+const OS_URL = 'https://opensky-network.org/api/states/all?lamin=5&lomin=97&lamax=21&lomax=106';
+
+const APIS = [
+  // ── adsb.lol ✅ confirmed working, CORS OK ──
+  { name:'adsb.lol',        url:'https://api.adsb.lol/v2/lat/13/lon/101/dist/500', parse: AC },
+  // ── airplanes.live ──
+  { name:'airplanes.live',  url:'https://api.airplanes.live/v2/point/13/101/500',  parse: AC },
+  // ── OpenSky ──
+  { name:'OpenSky',         url: OS_URL,  parse: parseOpenSky, timeout: 20000 },
+  // ── proxy fallbacks ──
+  { name:'adsb.lol (proxy)',        url: PX+'https://api.adsb.lol/v2/lat/13/lon/101/dist/500', parse: AC },
+  { name:'airplanes.live (proxy)',  url: PX+'https://api.airplanes.live/v2/point/13/101/500',  parse: AC },
+  { name:'OpenSky (proxy)', url: PX + OS_URL, parse: parseOpenSky, timeout: 25000 },
+];
+
+// ═══════════════════════════════════════════
+// SOURCE BADGE
+// ═══════════════════════════════════════════
+function setSrcBadge(name, state) {
+  const s = {
+    ok:      'background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);',
+    warn:    'background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3);',
+    offline: 'background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3);',
+  };
+  const badge = document.getElementById('srcBadge');
+  badge.textContent  = `● ${name}`;
+  badge.style.cssText = `padding:3px 9px;border-radius:10px;font-size:9px;font-weight:700;${s[state]||s.ok}`;
+}
+
+// ═══════════════════════════════════════════
+// FETCH FLIGHTS
+// ═══════════════════════════════════════════
+async function fetchFlights() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('loading');
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+
+  const errors = [];
+
+  for (let i = 0; i < APIS.length; i++) {
+    const api = APIS[i];
+    try {
+      document.getElementById('loadingText').textContent = `Trying ${api.name}…`;
+
+      const res  = await fetchWithTimeout(api.url, api.timeout || 12000);
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      const data = await res.json();
+      const ac   = api.parse(data);
+
+      if (!ac.length) {
+        errors.push(`${api.name}: 0 aircraft returned`);
+        continue;
+      }
+
+      allFlights = ac;
+      setSrcBadge(api.name, i < 3 ? 'ok' : 'warn');
+      document.getElementById('stSrc').textContent = api.name;
+      applyFilter();
+      updateStats();
+      renderMarkers();
+      document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
+      btn.classList.remove('loading');
+      document.getElementById('loadingOverlay').classList.add('hidden');
+      return; // ✅
+
+    } catch (err) {
+      errors.push(`${api.name}: ${err.message}`);
+      console.warn(`[${api.name}]`, err.message);
+    }
+  }
+
+  // ❌ All failed
+  setSrcBadge('Offline', 'offline');
+  document.getElementById('flightList').innerHTML =
+    `<div class="no-flights">
+       <div class="big">⚠</div>
+       ทุก API ล้มเหลว<br><br>
+       <div style="text-align:left;font-size:9px;color:var(--muted);line-height:1.8;">
+         ${errors.map(e=>`• ${e}`).join('<br>')}
+       </div><br>
+       <div style="font-size:9px;color:var(--muted);">
+         ตรวจสอบอินเทอร์เน็ต แล้ว Refresh อีกครั้ง
+       </div>
+     </div>`;
+  btn.classList.remove('loading');
+  document.getElementById('loadingOverlay').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════
+// FILTER + SEARCH
+// ═══════════════════════════════════════════
+function applyFilter() {
+  const q = currentQuery.toLowerCase();
+  filtFlights = allFlights.filter(f => {
+    if (activeFilter === 'air'   && isGround(f)) return false;
+    if (activeFilter === 'gnd'   && !isGround(f)) return false;
+    if (activeFilter === 'climb' && !(f.baro_rate > 100))  return false;
+    if (activeFilter === 'desc'  && !(f.baro_rate < -100)) return false;
+    if (q) {
+      const cs = (f.callsign||f.flight||'').toLowerCase();
+      const rx = (f.r||'').toLowerCase();
+      const tp = (f.t||'').toLowerCase();
+      const hx = (f.hex||'').toLowerCase();
+      if (!cs.includes(q) && !rx.includes(q) && !tp.includes(q) && !hx.includes(q)) return false;
+    }
+    return true;
+  });
+  renderList();
+}
+
+function filterFlights() {
+  currentQuery = document.getElementById('searchInput').value;
+  applyFilter();
+}
+
+function setFilter(f) {
+  activeFilter = f;
+  ['all','air','gnd','climb','desc'].forEach(k =>
+    document.getElementById('fp-'+k)?.classList.toggle('active', k === f)
+  );
+  applyFilter();
+  renderMarkers();
+}
+
+// ═══════════════════════════════════════════
+// RENDER LIST
+// ═══════════════════════════════════════════
+function renderList() {
+  document.getElementById('flightCount').textContent = filtFlights.length;
+  const list = document.getElementById('flightList');
+  if (!filtFlights.length) {
+    list.innerHTML = `<div class="no-flights"><div class="big">✈</div>No flights match.</div>`;
+    return;
+  }
+  const sorted = [...filtFlights].sort((a,b) => altFt(b) - altFt(a));
+  list.innerHTML = sorted.map(f => {
+    const cs    = (f.callsign||f.flight||'').trim() || f.hex;
+    const color = altColor(f);
+    const gnd   = isGround(f);
+    const alt   = gnd ? 'GND' : (altFt(f)/100|0)*100 + 'ft';
+    const spd   = f.gs != null ? Math.round(f.gs)+'kts' : '—';
+    const type  = f.t || '';
+    const reg   = f.r  || '';
+    const vrIcon = f.baro_rate == null ? '→' : f.baro_rate > 100 ? '↑' : f.baro_rate < -100 ? '↓' : '→';
+    const vrCol  = f.baro_rate == null ? '#6b7280' : f.baro_rate > 100 ? '#2ecc71' : f.baro_rate < -100 ? '#e74c3c' : '#6b7280';
+    const emg   = f.emergency && f.emergency !== 'none' ? ' ⚠' : '';
+
+    return `<div class="fl-item ${selectedHex===f.hex?'active':''}" id="fl-${f.hex}" onclick="selectFlight('${f.hex}')">
+      <div class="fl-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" style="transform:rotate(${f.track||0}deg)">
+          <path d="M12 2L8 10H4l2 2-2 4h4l4 6 4-6h4l-2-4 2-2h-4z" fill="${color}" stroke="rgba(0,0,0,.4)" stroke-width=".5"/>
+        </svg>
+      </div>
+      <div class="fl-info">
+        <div class="fl-cs">${cs}${emg}</div>
+        <div class="fl-route">${reg}${reg&&type?' · ':''}${type}</div>
+        <div class="fl-meta" style="color:${vrCol};">${vrIcon} ${spd}</div>
+      </div>
+      <div class="fl-right">
+        <div class="fl-alt">${alt}</div>
+        <div class="fl-spd">${f.squawk||'—'}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════
+// RENDER MARKERS
+// ═══════════════════════════════════════════
+function renderMarkers() {
+  const keep = new Set(filtFlights.map(f => f.hex));
+
+  // Remove old
+  Object.keys(flightMarkers).forEach(hex => {
+    if (!keep.has(hex)) {
+      flightLayer.removeLayer(flightMarkers[hex]);
+      delete flightMarkers[hex];
+    }
+  });
+
+  // Add / update
+  filtFlights.forEach(f => {
+    const selected = selectedHex === f.hex;
+    const icon = planeIcon(f, selected);
+
+    if (flightMarkers[f.hex]) {
+      flightMarkers[f.hex].setLatLng([f.lat, f.lon]);
+      flightMarkers[f.hex].setIcon(icon);
+    } else {
+      const m = L.marker([f.lat, f.lon], { icon, zIndexOffset: selected ? 1000 : 0 });
+      m.bindPopup(popupHtml(f), { maxWidth:260 });
+      m.on('click', () => selectFlight(f.hex));
+      flightLayer.addLayer(m);
+      flightMarkers[f.hex] = m;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════
+// SELECT / DESELECT
+// ═══════════════════════════════════════════
+function selectFlight(hex) {
+  // Deselect old
+  if (selectedHex && flightMarkers[selectedHex]) {
+    const old = allFlights.find(f => f.hex === selectedHex);
+    if (old) {
+      flightMarkers[selectedHex].setIcon(planeIcon(old, false));
+      flightMarkers[selectedHex].setZIndexOffset(0);
+    }
+  }
+
+  selectedHex = hex;
+  const f = allFlights.find(x => x.hex === hex);
+  if (!f) return;
+
+  // Update icon + zIndex
+  if (flightMarkers[hex]) {
+    flightMarkers[hex].setIcon(planeIcon(f, true));
+    flightMarkers[hex].setZIndexOffset(1000);
+  }
+
+  // Highlight sidebar
+  document.querySelectorAll('.fl-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('fl-'+hex);
+  if (el) { el.classList.add('active'); el.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
+
+  // Open popup & pan
+  map.panTo([f.lat, f.lon], { animate:true });
+  setTimeout(() => flightMarkers[hex]?.openPopup(), 300);
+
+  showDetailPanel(f);
+}
+
+function closeDetail() {
+  document.getElementById('detailPanel').classList.remove('show');
+  if (selectedHex && flightMarkers[selectedHex]) {
+    const f = allFlights.find(x => x.hex === selectedHex);
+    if (f) { flightMarkers[selectedHex].setIcon(planeIcon(f, false)); flightMarkers[selectedHex].setZIndexOffset(0); }
+  }
+  selectedHex = null;
+  document.querySelectorAll('.fl-item').forEach(el => el.classList.remove('active'));
+  map.closePopup();
+}
+
+function showDetailPanel(f) {
+  const cs  = (f.callsign||f.flight||'').trim() || f.hex;
+  const alt = isGround(f) ? 'GND' : altFt(f).toLocaleString();
+  const spd = f.gs   != null ? Math.round(f.gs)   : '—';
+  const hdg = f.track!= null ? Math.round(f.track) : '—';
+  const vrRaw = f.baro_rate;
+  const vr  = vrRaw != null ? (vrRaw >= 0 ? '+' : '') + Math.round(vrRaw) : '—';
+  const vrCls = vrRaw == null || Math.abs(vrRaw) < 50 ? 'level' : vrRaw > 0 ? 'climb' : 'desc';
+
+  document.getElementById('dp-cs').textContent    = cs;
+  document.getElementById('dp-reg').textContent   = [f.r, f.t, isGround(f)?'On Ground':'Airborne'].filter(Boolean).join(' · ');
+  document.getElementById('dp-alt').textContent   = alt;
+  document.getElementById('dp-spd').textContent   = spd;
+  document.getElementById('dp-hdg').textContent   = hdg;
+  const vrEl = document.getElementById('dp-vr');
+  vrEl.textContent = vr; vrEl.className = `dp-val dp-vrate ${vrCls}`;
+  document.getElementById('dp-type').textContent  = f.t || '—';
+  document.getElementById('dp-regnr').textContent = f.r || '—';
+  document.getElementById('dp-sqk').textContent   = f.squawk || '—';
+  document.getElementById('dp-hex').textContent   = f.hex;
+
+  const panel = document.getElementById('detailPanel');
+  panel.classList.add('show');
+  panel.style.left = sidebarOpen ? '300px' : '0';
+}
+
+// ═══════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════
+function updateStats() {
+  const total = allFlights.length;
+  const air   = allFlights.filter(f => !isGround(f)).length;
+  const gnd   = total - air;
+  document.getElementById('stTotal').textContent = total;
+  document.getElementById('stAir').textContent   = air;
+  document.getElementById('stGnd').textContent   = gnd;
+  document.getElementById('statAir').textContent = air;
+  document.getElementById('statGnd').textContent = gnd;
+}
+
+// ═══════════════════════════════════════════
+// SIDEBAR
+// ═══════════════════════════════════════════
+let sidebarOpen = true;
+function toggleSidebar() {
+  sidebarOpen = !sidebarOpen;
+  document.getElementById('sidebar').classList.toggle('collapsed', !sidebarOpen);
+  const tog = document.getElementById('sbToggle');
+  tog.textContent = sidebarOpen ? '◀' : '▶';
+  tog.style.left  = sidebarOpen ? '300px' : '0';
+  if (selectedHex) document.getElementById('detailPanel').style.left = sidebarOpen ? '300px' : '0';
+  setTimeout(() => map.invalidateSize(), 260);
+}
+
+function switchTab(t) {
+  ['flights','info'].forEach(id => {
+    document.getElementById('tab-'+id).classList.toggle('active', id === t);
+    const pane = document.getElementById('pane-'+id);
+    pane.style.display = id === t ? 'flex' : 'none';
+  });
+}
+
+// ═══════════════════════════════════════════
+// AUTO-REFRESH
+// ═══════════════════════════════════════════
+function toggleAuto() {
+  autoRefresh = !autoRefresh;
+  document.getElementById('autoBtn').classList.toggle('active', autoRefresh);
+  if (autoRefresh) {
+    autoTimer = setInterval(() => fetchFlights(), 15000);
+  } else {
+    clearInterval(autoTimer);
+  }
+}
+
+// ═══════════════════════════════════════════
+// LABELS
+// ═══════════════════════════════════════════
+function toggleLabels() {
+  showLabels = !showLabels;
+  document.getElementById('labelBtn').classList.toggle('on', showLabels);
+  renderMarkers();
+}
+
+// ═══════════════════════════════════════════
+// KEYBOARD
+// ═══════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input')) return;
+  if (e.key === 'r' || e.key === 'R') fetchFlights(true);
+  if (e.key === 'a' || e.key === 'A') toggleAuto();
+  if (e.key === 'l' || e.key === 'L') toggleLabels();
+  if (e.key === '[') toggleSidebar();
+  if (e.key === 'Escape') closeDetail();
+});
+
+// ═══════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════
+fetchFlights();
+</script>
+</body>
+</html>
